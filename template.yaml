@@ -1,12 +1,12 @@
 AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
 Resources:
-  Api:
+  restApi:
     Type: AWS::Serverless::Api
     Properties:
       Name: !Sub
         - ${ResourceName} From Stack ${StackTagName} Environment ${EnvironmentTagName}
-        - ResourceName: Api
+        - ResourceName: restApi
       StageName: !Ref EnvironmentAPIGatewayStageName
       DefinitionBody:
         swagger: '2.0'
@@ -17,18 +17,18 @@ Resources:
               x-amazon-apigateway-integration:
                 httpMethod: POST
                 type: aws_proxy
-                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${Function.Arn}/invocations
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${getEvent.Arn}/invocations
               responses: {}
       EndpointConfiguration: REGIONAL
       TracingEnabled: true
-  Function:
+  getEvent:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub ${AWS::StackName}-Function
+      FunctionName: !Sub ${AWS::StackName}-getEvent
       Description: !Sub
         - Stack ${StackTagName} Environment ${EnvironmentTagName} Function ${ResourceName}
-        - ResourceName: Function
-      CodeUri: src/Function
+        - ResourceName: getEvent
+      CodeUri: src/getEvent
       Handler: index.handler
       Runtime: nodejs10.x
       MemorySize: 3008
@@ -36,32 +36,24 @@ Resources:
       Tracing: Active
       Policies:
         - AWSXrayWriteOnlyAccess
-        - DynamoDBCrudPolicy:
-            TableName: !Ref Table
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt queuedJobs.QueueName
       Events:
-        ApiGET:
+        restApiGET:
           Type: Api
           Properties:
             Path: /
             Method: GET
-            RestApiId: !Ref Api
+            RestApiId: !Ref restApi
       Environment:
         Variables:
-          TABLE_NAME: !Ref Table
-          TABLE_ARN: !GetAtt Table.Arn
-  Table:
-    Type: AWS::DynamoDB::Table
+          QUEUE_NAME: !GetAtt queuedJobs.QueueName
+          QUEUE_ARN: !GetAtt queuedJobs.Arn
+          QUEUE_URL: !Ref queuedJobs
+  queuedJobs:
+    Type: AWS::SQS::Queue
     Properties:
-      AttributeDefinitions:
-        - AttributeName: id
-          AttributeType: S
-      BillingMode: PAY_PER_REQUEST
-      KeySchema:
-        - AttributeName: id
-          KeyType: HASH
-      StreamSpecification:
-        StreamViewType: NEW_AND_OLD_IMAGES
-      TableName: !Sub ${AWS::StackName}-Table
+      QueueName: !Sub ${AWS::StackName}-queuedJobs
 Parameters:
   StackTagName:
     Type: String
